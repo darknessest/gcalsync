@@ -45,10 +45,17 @@ type TravelConfig struct {
 	AfterSummaryTmpl  string `toml:"travel_after_event_summary"`  // e.g. "Travel from {summary}"
 }
 
+// NEW sub-struct for sync window feature
+type SyncConfig struct {
+	Direction     string `toml:"direction"`       // "future" | "past" | "all"
+	TimeframeDays int    `toml:"timeframe_days"`  // #days to look ahead / behind
+}
+
 type Config struct {
 	General GeneralConfig `toml:"general"`
 	Google  GoogleConfig  `toml:"google"`
-	Travel  TravelConfig  `toml:"travel"` // <-- add this line
+	Travel  TravelConfig  `toml:"travel"`
+	Sync    SyncConfig    `toml:"sync"`      // NEW
 }
 
 var oauthConfig *oauth2.Config
@@ -97,6 +104,14 @@ func readConfig(filename string) (*Config, error) {
 	}
 	if config.Travel.AfterSummaryTmpl == "" {
 		config.Travel.AfterSummaryTmpl = "Travel from {summary}"
+	}
+
+	// Sensible defaults for SyncConfig
+	if config.Sync.TimeframeDays == 0 {
+		config.Sync.TimeframeDays = 14        // default = 2 weeks
+	}
+	if config.Sync.Direction == "" {
+		config.Sync.Direction = "future"      // default direction
 	}
 
 	return &config, nil

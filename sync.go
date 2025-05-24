@@ -37,6 +37,15 @@ func syncCalendars() {
 	privateEventSummary := config.General.PrivateEventSummary
 	travelCfg := config.Travel // <-- NEW
 
+	syncDirection := strings.ToLower(config.Sync.Direction)
+	if syncDirection == "" {
+		syncDirection = "future"
+	}
+	timeframeDays := config.Sync.TimeframeDays
+	if timeframeDays == 0 {
+		timeframeDays = 14
+	}
+
 	db, err := openDB(".gcalsync.db")
 	if err != nil {
 		log.Fatalf("Error opening database: %v", err)
@@ -58,7 +67,8 @@ func syncCalendars() {
 		for _, calendarID := range calendarIDs {
 			fmt.Printf("  ↪️ Syncing calendar: %s\n", calendarID)
 			syncCalendar(db, calendarService, calendarID, calendars, accountName,
-				useReminders, eventVisibility, privateEventSummary, travelCfg)
+				useReminders, eventVisibility, privateEventSummary, travelCfg,
+				syncDirection, timeframeDays)
 		}
 		fmt.Println("✅ Calendar synchronization completed successfully!")
 	}
@@ -82,8 +92,8 @@ func getCalendarsFromDB(db *sql.DB) map[string][]string {
 
 func syncCalendar(db *sql.DB, calendarService *calendar.Service,
 	calendarID string, calendars map[string][]string, accountName string,
-	useReminders bool, eventVisibility string, privateEventSummary string,
-	travelCfg TravelConfig) {
+	useReminders bool, eventVisibility, privateEventSummary string,
+	travelCfg TravelConfig, syncDirection string, timeframeDays int) {
 	config, err := readConfig(".gcalsync.toml")
 	if err != nil {
 		log.Fatalf("Error reading config file: %v", err)
@@ -94,10 +104,20 @@ func syncCalendar(db *sql.DB, calendarService *calendar.Service,
 	pageToken := ""
 
 	now := time.Now()
-	startOfCurrentMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
-	endOfNextMonth := startOfCurrentMonth.AddDate(0, 2, -1)
-	timeMin := startOfCurrentMonth.Format(time.RFC3339)
-	timeMax := endOfNextMonth.Format(time.RFC3339)
+	rng := time.Duration(timeframeDays) * 24 * time.Hour
+
+	var timeMin, timeMax string
+	switch strings.ToLower(syncDirection) {
+	case "past":
+		timeMin = now.Add(-rng).Format(time.RFC3339)
+		timeMax = now.Format(time.RFC3339)
+	case "all":
+		timeMin = now.Add(-rng).Format(time.RFC3339)
+		timeMax = now.Add(rng).Format(time.RFC3339)
+	default: // "future"
+		timeMin = now.Format(time.RFC3339)
+		timeMax = now.Add(rng).Format(time.RFC3339)
+	}
 
 	var allEventsId = map[string]bool{}
 
