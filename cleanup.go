@@ -13,7 +13,7 @@ import (
 
 func eventInPast(e *calendar.Event) bool {
 	var (
-		ts    string
+		ts     string
 		layout string
 	)
 	if e.End != nil && e.End.DateTime != "" {
