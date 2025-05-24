@@ -100,5 +100,37 @@ func dbInit() {
 		if err != nil {
 			log.Fatalf("Error updating db_version table: %v", err)
 		}
+
+		/* ---- DB schema v5 : add event_type column & new PK ---- */
+		_, err = db.Exec(`CREATE TABLE blocker_events_new (
+			event_id TEXT,
+			calendar_id TEXT,
+			account_name TEXT,
+			origin_event_id TEXT,
+			origin_calendar_id TEXT,
+			last_updated TEXT,
+			response_status TEXT DEFAULT 'tentative',
+			event_type TEXT DEFAULT 'blocker',
+			PRIMARY KEY (calendar_id, origin_event_id, event_type)
+		)`)
+		if err != nil { log.Fatalf("Error creating new blocker_events table: %v", err) }
+
+		_, err = db.Exec(`INSERT INTO blocker_events_new
+			  (event_id, calendar_id, account_name, origin_event_id,
+			   origin_calendar_id, last_updated, response_status, event_type)
+			  SELECT event_id, calendar_id, account_name, origin_event_id,
+			         origin_calendar_id, last_updated, response_status, 'blocker'
+			  FROM blocker_events`)
+		if err != nil { log.Fatalf("Error migrating blocker_events: %v", err) }
+
+		_, err = db.Exec(`DROP TABLE blocker_events`)
+		if err != nil { log.Fatalf("Error dropping old blocker_events: %v", err) }
+
+		_, err = db.Exec(`ALTER TABLE blocker_events_new RENAME TO blocker_events`)
+		if err != nil { log.Fatalf("Error renaming blocker_events_new: %v", err) }
+
+		dbVersion = 5
+		_, err = db.Exec(`UPDATE db_version SET version = 5 WHERE name = 'gcalsync'`)
+		if err != nil { log.Fatalf("Error updating db_version to 5: %v", err) }
 	}
 }
