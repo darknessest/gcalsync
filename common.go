@@ -35,20 +35,20 @@ type GeneralConfig struct {
 	PrivateEventSummary string `toml:"private_event_summary"` // template for private events
 }
 
- // NEW sub-struct for travel-time feature
- type TravelConfig struct {
-     Enable               bool   `toml:"enable_travel_time"`            // turn feature on/off
-     MinutesBefore        int    `toml:"minutes_before"`                // default travel minutes before event
-     MinutesAfter         int    `toml:"minutes_after"`                 // default travel minutes after  event
-     EventVisibility      string `toml:"travel_event_visibility"`       // “public” / “private” / “default”
-     BeforeSummaryTmpl    string `toml:"travel_before_event_summary"`   // e.g. "Travel to {summary}"
-     AfterSummaryTmpl     string `toml:"travel_after_event_summary"`    // e.g. "Travel from {summary}"
- }
+// NEW sub-struct for travel-time feature
+type TravelConfig struct {
+	Enable            bool   `toml:"enable_travel_time"`          // turn feature on/off
+	MinutesBefore     int    `toml:"minutes_before"`              // default travel minutes before event
+	MinutesAfter      int    `toml:"minutes_after"`               // default travel minutes after  event
+	EventVisibility   string `toml:"travel_event_visibility"`     // “public” / “private” / “default”
+	BeforeSummaryTmpl string `toml:"travel_before_event_summary"` // e.g. "Travel to {summary}"
+	AfterSummaryTmpl  string `toml:"travel_after_event_summary"`  // e.g. "Travel from {summary}"
+}
 
 type Config struct {
 	General GeneralConfig `toml:"general"`
 	Google  GoogleConfig  `toml:"google"`
-    Travel  TravelConfig `toml:"travel"`      // <-- add this line
+	Travel  TravelConfig  `toml:"travel"` // <-- add this line
 }
 
 var oauthConfig *oauth2.Config
@@ -85,19 +85,19 @@ func readConfig(filename string) (*Config, error) {
 		return nil, err
 	}
 
-    /* sensible defaults when fields not present */
-    if config.Travel.MinutesBefore == 0 {
-        config.Travel.MinutesBefore = 30
-    }
-    if config.Travel.MinutesAfter == 0 {
-        config.Travel.MinutesAfter = 30
-    }
-    if config.Travel.BeforeSummaryTmpl == "" {
-        config.Travel.BeforeSummaryTmpl = "Travel to {summary}"
-    }
-    if config.Travel.AfterSummaryTmpl == "" {
-        config.Travel.AfterSummaryTmpl = "Travel from {summary}"
-    }
+	/* sensible defaults when fields not present */
+	if config.Travel.MinutesBefore == 0 {
+		config.Travel.MinutesBefore = 30
+	}
+	if config.Travel.MinutesAfter == 0 {
+		config.Travel.MinutesAfter = 30
+	}
+	if config.Travel.BeforeSummaryTmpl == "" {
+		config.Travel.BeforeSummaryTmpl = "Travel to {summary}"
+	}
+	if config.Travel.AfterSummaryTmpl == "" {
+		config.Travel.AfterSummaryTmpl = "Travel from {summary}"
+	}
 
 	return &config, nil
 }
