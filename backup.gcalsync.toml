@@ -16,3 +16,7 @@ minutes_after = 15
 travel_event_visibility = "private"
 travel_before_event_summary = "🏃‍➡️ Travel"
 travel_after_event_summary = "🏃‍ Travel"
+
+[sync]
+direction = "future"
+timeframe_days = 21
