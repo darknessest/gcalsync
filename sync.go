@@ -13,6 +13,17 @@ import (
 	"google.golang.org/api/option"
 )
 
+// isBlockerEvent returns true if the event is a gcalsync blocker event.
+func isBlockerEvent(e *calendar.Event) bool {
+	if e.ExtendedProperties != nil && e.ExtendedProperties.Private != nil {
+		if v, ok := e.ExtendedProperties.Private["gcalsync_blocker"]; ok && v == "1" {
+			return true
+		}
+	}
+	// fallback for events created by older versions
+	return strings.Contains(e.Summary, "O_o")
+}
+
 func syncCalendars() {
 	config, err := readConfig(".gcalsync.toml")
 	if err != nil {
@@ -103,6 +114,9 @@ func syncCalendar(db *sql.DB, calendarService *calendar.Service,
 			if event.EventType == "workingLocation" {
 				continue
 			}
+			if isBlockerEvent(event) { // skip our own blocker events
+				continue
+			}
 			var blockerSummary string
 			if eventVisibility == "private" {
 				// allow user template; {summary} will be replaced by original text
@@ -114,94 +128,97 @@ func syncCalendar(db *sql.DB, calendarService *calendar.Service,
 			} else {
 				blockerSummary = fmt.Sprintf("O_o %s", event.Summary)
 			}
-			if !strings.Contains(event.Summary, "O_o") {
-				fmt.Printf("    ✨ Syncing event: %s\n", event.Summary)
-				for otherAccountName, calendarIDs := range calendars {
-					for _, otherCalendarID := range calendarIDs {
-						if otherCalendarID != calendarID {
-							var existingBlockerEventID string
-							var last_updated string
-							var originCalendarID string
-							var responseStatus string
-							err := db.QueryRow("SELECT event_id, last_updated, origin_calendar_id, response_status FROM blocker_events WHERE calendar_id = ? AND origin_event_id = ?", otherCalendarID, event.Id).Scan(&existingBlockerEventID, &last_updated, &originCalendarID, &responseStatus)
+			fmt.Printf("    ✨ Syncing event: %s\n", event.Summary)
+			for otherAccountName, calendarIDs := range calendars {
+				for _, otherCalendarID := range calendarIDs {
+					if otherCalendarID != calendarID {
+						var existingBlockerEventID string
+						var last_updated string
+						var originCalendarID string
+						var responseStatus string
+						err := db.QueryRow("SELECT event_id, last_updated, origin_calendar_id, response_status FROM blocker_events WHERE calendar_id = ? AND origin_event_id = ?", otherCalendarID, event.Id).Scan(&existingBlockerEventID, &last_updated, &originCalendarID, &responseStatus)
 
-							// Get original event's response status for the calendar owner
-							originalResponseStatus := "accepted" // default
-							if event.Attendees != nil {
-								for _, attendee := range event.Attendees {
-									if attendee.Email == calendarID {
-										originalResponseStatus = attendee.ResponseStatus
-										break
-									}
+						// Get original event's response status for the calendar owner
+						originalResponseStatus := "accepted" // default
+						if event.Attendees != nil {
+							for _, attendee := range event.Attendees {
+								if attendee.Email == calendarID {
+									originalResponseStatus = attendee.ResponseStatus
+									break
 								}
 							}
+						}
 
-							// Only skip if event exists, is up to date, and response status hasn't changed
-							if err == nil && last_updated == event.Updated && originCalendarID == calendarID && responseStatus == originalResponseStatus {
-								fmt.Printf("      ⚠️ Blocker event already exists for origin event ID %s in calendar %s and up to date\n", event.Id, otherCalendarID)
-								continue
-							}
+						// Only skip if event exists, is up to date, and response status hasn't changed
+						if err == nil && last_updated == event.Updated && originCalendarID == calendarID && responseStatus == originalResponseStatus {
+							fmt.Printf("      ⚠️ Blocker event already exists for origin event ID %s in calendar %s and up to date\n", event.Id, otherCalendarID)
+							continue
+						}
 
-							client := getClient(ctx, oauthConfig, db, otherAccountName, config)
-							otherCalendarService, err := calendar.NewService(ctx, option.WithHTTPClient(client))
-							if err != nil {
-								log.Fatalf("Error creating calendar client: %v", err)
-							}
+						client := getClient(ctx, oauthConfig, db, otherAccountName, config)
+						otherCalendarService, err := calendar.NewService(ctx, option.WithHTTPClient(client))
+						if err != nil {
+							log.Fatalf("Error creating calendar client: %v", err)
+						}
 
-							blockerDescription := event.Description
+						blockerDescription := event.Description
 
-							if event.End == nil {
-								startTime, _ := time.Parse(time.RFC3339, event.Start.DateTime)
-								duration := time.Hour
-								endTime := startTime.Add(duration)
-								event.End = &calendar.EventDateTime{DateTime: endTime.Format(time.RFC3339)}
-							}
+						if event.End == nil {
+							startTime, _ := time.Parse(time.RFC3339, event.Start.DateTime)
+							duration := time.Hour
+							endTime := startTime.Add(duration)
+							event.End = &calendar.EventDateTime{DateTime: endTime.Format(time.RFC3339)}
+						}
 
-							blockerEvent := &calendar.Event{
-								Summary:     blockerSummary,
-								Description: blockerDescription,
-								Start:       event.Start,
-								End:         event.End,
-								Attendees: []*calendar.EventAttendee{
-									{
-										Email:          otherCalendarID,
-										ResponseStatus: originalResponseStatus,
-									},
+						blockerEvent := &calendar.Event{
+							Summary:     blockerSummary,
+							Description: blockerDescription,
+							Start:       event.Start,
+							End:         event.End,
+							Attendees: []*calendar.EventAttendee{
+								{
+									Email:          otherCalendarID,
+									ResponseStatus: originalResponseStatus,
 								},
-							}
-							if !useReminders {
-								blockerEvent.Reminders = nil
-							}
+							},
+							ExtendedProperties: &calendar.EventExtendedProperties{
+								Private: map[string]string{
+									"gcalsync_blocker": "1",
+								},
+							},
+						}
+						if !useReminders {
+							blockerEvent.Reminders = nil
+						}
 
-							if eventVisibility != "" {
-								blockerEvent.Visibility = eventVisibility
-							}
+						if eventVisibility != "" {
+							blockerEvent.Visibility = eventVisibility
+						}
 
-							var res *calendar.Event
+						var res *calendar.Event
 
-							if existingBlockerEventID != "" {
-								res, err = otherCalendarService.Events.Update(otherCalendarID, existingBlockerEventID, blockerEvent).Do()
-							} else {
-								res, err = otherCalendarService.Events.Insert(otherCalendarID, blockerEvent).Do()
-							}
-							if err == nil {
-								fmt.Printf("      ➕ Blocker event created or updated: %s (Response: %s)\n", blockerEvent.Summary, originalResponseStatus)
-								fmt.Printf("      📅 Destination calendar: %s\n", otherCalendarID)
-								result, err := db.Exec(`INSERT OR REPLACE INTO blocker_events
-									(event_id, origin_calendar_id, calendar_id, account_name, origin_event_id, last_updated, response_status)
-									VALUES (?, ?, ?, ?, ?, ?, ?)`,
-									res.Id, calendarID, otherCalendarID, otherAccountName, event.Id, event.Updated, originalResponseStatus)
-								if err != nil {
-									log.Printf("Error inserting blocker event into database: %v\n", err)
-								} else {
-									rowsAffected, _ := result.RowsAffected()
-									fmt.Printf("      📥 Blocker event inserted into database. Rows affected: %d\n", rowsAffected)
-								}
-							}
-
+						if existingBlockerEventID != "" {
+							res, err = otherCalendarService.Events.Update(otherCalendarID, existingBlockerEventID, blockerEvent).Do()
+						} else {
+							res, err = otherCalendarService.Events.Insert(otherCalendarID, blockerEvent).Do()
+						}
+						if err == nil {
+							fmt.Printf("      ➕ Blocker event created or updated: %s (Response: %s)\n", blockerEvent.Summary, originalResponseStatus)
+							fmt.Printf("      📅 Destination calendar: %s\n", otherCalendarID)
+							result, err := db.Exec(`INSERT OR REPLACE INTO blocker_events
+								(event_id, origin_calendar_id, calendar_id, account_name, origin_event_id, last_updated, response_status)
+								VALUES (?, ?, ?, ?, ?, ?, ?)`,
+								res.Id, calendarID, otherCalendarID, otherAccountName, event.Id, event.Updated, originalResponseStatus)
 							if err != nil {
-								log.Fatalf("Error creating blocker event: %v", err)
+								log.Printf("Error inserting blocker event into database: %v\n", err)
+							} else {
+								rowsAffected, _ := result.RowsAffected()
+								fmt.Printf("      📥 Blocker event inserted into database. Rows affected: %d\n", rowsAffected)
 							}
+						}
+
+						if err != nil {
+							log.Fatalf("Error creating blocker event: %v", err)
 						}
 					}
 				}
