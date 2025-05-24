@@ -20,6 +20,7 @@ func syncCalendars() {
 	}
 	useReminders := config.General.DisableReminders
 	eventVisibility := config.General.EventVisibility
+	privateEventSummary := config.General.PrivateEventSummary
 
 	db, err := openDB(".gcalsync.db")
 	if err != nil {
@@ -41,7 +42,7 @@ func syncCalendars() {
 
 		for _, calendarID := range calendarIDs {
 			fmt.Printf("  ↪️ Syncing calendar: %s\n", calendarID)
-			syncCalendar(db, calendarService, calendarID, calendars, accountName, useReminders, eventVisibility)
+			syncCalendar(db, calendarService, calendarID, calendars, accountName, useReminders, eventVisibility, privateEventSummary)
 		}
 		fmt.Println("✅ Calendar synchronization completed successfully!")
 	}
@@ -63,7 +64,9 @@ func getCalendarsFromDB(db *sql.DB) map[string][]string {
 	return calendars
 }
 
-func syncCalendar(db *sql.DB, calendarService *calendar.Service, calendarID string, calendars map[string][]string, accountName string, useReminders bool, eventVisibility string) {
+func syncCalendar(db *sql.DB, calendarService *calendar.Service,
+	calendarID string, calendars map[string][]string, accountName string,
+	useReminders bool, eventVisibility string, privateEventSummary string) {
 	config, err := readConfig(".gcalsync.toml")
 	if err != nil {
 		log.Fatalf("Error reading config file: %v", err)
@@ -100,6 +103,17 @@ func syncCalendar(db *sql.DB, calendarService *calendar.Service, calendarID stri
 			if event.EventType == "workingLocation" {
 				continue
 			}
+			var blockerSummary string
+			if eventVisibility == "private" {
+				// allow user template; {summary} will be replaced by original text
+				if privateEventSummary == "" {
+					blockerSummary = fmt.Sprintf("O_o %s", event.Summary)
+				} else {
+					blockerSummary = strings.ReplaceAll(privateEventSummary, "{summary}", event.Summary)
+				}
+			} else {
+				blockerSummary = fmt.Sprintf("O_o %s", event.Summary)
+			}
 			if !strings.Contains(event.Summary, "O_o") {
 				fmt.Printf("    ✨ Syncing event: %s\n", event.Summary)
 				for otherAccountName, calendarIDs := range calendars {
@@ -134,7 +148,6 @@ func syncCalendar(db *sql.DB, calendarService *calendar.Service, calendarID stri
 								log.Fatalf("Error creating calendar client: %v", err)
 							}
 
-							blockerSummary := fmt.Sprintf("O_o %s", event.Summary)
 							blockerDescription := event.Description
 
 							if event.End == nil {

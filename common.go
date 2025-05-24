@@ -28,10 +28,11 @@ type GoogleConfig struct {
 }
 
 type GeneralConfig struct {
-	DisableReminders bool   `toml:"disable_reminders"`
-	EventVisibility  string `toml:"block_event_visibility"`
-	AuthorizedPorts  []int  `toml:"authorized_ports"`
-	Verbosity        int    `toml:"verbosity"`
+	DisableReminders    bool   `toml:"disable_reminders"`
+	EventVisibility     string `toml:"block_event_visibility"`
+	AuthorizedPorts     []int  `toml:"authorized_ports"`
+	Verbosity           int    `toml:"verbosity"`
+	PrivateEventSummary string `toml:"private_event_summary"` // template for private events
 }
 
 type Config struct {
@@ -78,12 +79,13 @@ func readConfig(filename string) (*Config, error) {
 
 func upadteConfigFormatIfNeeded(data []byte, configDir, filename string) error {
 	type oldConfig struct {
-		DisableReminders bool   `toml:"disable_reminders"`
-		EventVisibility  string `toml:"block_event_visibility"`
-		AuthorizedPorts  []int  `toml:"authorized_ports"`
-		ClientID         string `toml:"client_id"`
-		ClientSecret     string `toml:"client_secret"`
-		Verbosity        int    `toml:"verbosity_level"`
+		DisableReminders    bool   `toml:"disable_reminders"`
+		EventVisibility     string `toml:"block_event_visibility"`
+		AuthorizedPorts     []int  `toml:"authorized_ports"`
+		ClientID            string `toml:"client_id"`
+		ClientSecret        string `toml:"client_secret"`
+		Verbosity           int    `toml:"verbosity_level"`
+		PrivateEventSummary string `toml:"private_event_summary"`
 	}
 	var old oldConfig
 	if err := toml.Unmarshal(data, &old); err != nil {
@@ -102,10 +104,11 @@ func upadteConfigFormatIfNeeded(data []byte, configDir, filename string) error {
 	// Convert old config to new format
 	newConfig := Config{
 		General: GeneralConfig{
-			DisableReminders: old.DisableReminders,
-			EventVisibility:  old.EventVisibility,
-			AuthorizedPorts:  old.AuthorizedPorts,
-			Verbosity:        old.Verbosity,
+			DisableReminders:    old.DisableReminders,
+			EventVisibility:     old.EventVisibility,
+			AuthorizedPorts:     old.AuthorizedPorts,
+			Verbosity:           old.Verbosity,
+			PrivateEventSummary: old.PrivateEventSummary,
 		},
 		Google: GoogleConfig{
 			ClientID:     old.ClientID,
