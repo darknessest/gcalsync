@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"strings"
 
 	"google.golang.org/api/calendar/v3"
 	"google.golang.org/api/option"
@@ -58,12 +57,13 @@ func cleanupCalendar(calendarService *calendar.Service, calendarID string) {
 		}
 
 		for _, event := range events.Items {
-			if strings.Contains(event.Summary, "O_o") {
+			if isBlockerEvent(event) {
 				err := calendarService.Events.Delete(calendarID, event.Id).Do()
-				fmt.Printf("Deleted event %s from calendar %s\n", event.Summary, calendarID)
 				if err != nil {
 					log.Fatalf("Error deleting blocker event: %v", err)
 				}
+				fmt.Printf("Deleted blocker event %s from calendar %s\n",
+					event.Summary, calendarID)
 			}
 		}
 
