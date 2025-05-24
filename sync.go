@@ -241,7 +241,9 @@ func syncCalendar(db *sql.DB, calendarService *calendar.Service,
 									  WHERE calendar_id = ? AND origin_event_id = ? AND event_type = ?`
 								_ = db.QueryRow(q, otherCalendarID, event.Id, travelKind).Scan(&existingID, &lu, &ocid, &rs)
 								if lu == event.Updated && ocid == calendarID && rs == originalResponseStatus {
-									return // up-to-date
+									fmt.Printf("      ⚠️ Travel %s event already exists for origin event ID %s in calendar %s and up to date\n",
+										strings.TrimPrefix(travelKind, "travel_"), event.Id, otherCalendarID)
+									return
 								}
 
 								tEvent := &calendar.Event{
@@ -276,13 +278,22 @@ func syncCalendar(db *sql.DB, calendarService *calendar.Service,
 								if err != nil {
 									log.Fatalf("Error creating travel event: %v", err)
 								}
+								fmt.Printf("      🏃 Travel %s event created or updated: %s\n",
+									strings.TrimPrefix(travelKind, "travel_"), tEvent.Summary)
+								fmt.Printf("      📅 Destination calendar: %s\n", otherCalendarID)
 
-								_, _ = db.Exec(`INSERT OR REPLACE INTO blocker_events
-								   (event_id, origin_calendar_id, calendar_id, account_name,
-									origin_event_id, last_updated, response_status, event_type)
-								   VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-									resp.Id, calendarID, otherCalendarID, otherAccountName,
-									event.Id, event.Updated, originalResponseStatus, travelKind)
+								result, dbErr := db.Exec(`INSERT OR REPLACE INTO blocker_events
+								        (event_id, origin_calendar_id, calendar_id, account_name,
+								         origin_event_id, last_updated, response_status, event_type)
+								        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+								        resp.Id, calendarID, otherCalendarID, otherAccountName,
+								        event.Id, event.Updated, originalResponseStatus, travelKind)
+								if dbErr != nil {
+									log.Printf("Error inserting travel event into database: %v\n", dbErr)
+								} else {
+									rowsAffected, _ := result.RowsAffected()
+									fmt.Printf("      📥 Travel event inserted into database. Rows affected: %d\n", rowsAffected)
+								}
 							}
 
 							// compute times
