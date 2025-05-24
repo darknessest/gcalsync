@@ -13,12 +13,15 @@ import (
 	"google.golang.org/api/option"
 )
 
-// isBlockerEvent returns true if the event is a gcalsync blocker event.
+// isBlockerEvent returns true if the event is a gcalsync-generated event
 func isBlockerEvent(e *calendar.Event) bool {
 	if e.ExtendedProperties != nil && e.ExtendedProperties.Private != nil {
 		if v, ok := e.ExtendedProperties.Private["gcalsync_blocker"]; ok && v == "1" {
 			return true
 		}
+        if _, ok := e.ExtendedProperties.Private["gcalsync_travel"]; ok { // new
+            return true
+        }
 	}
 	// fallback for events created by older versions
 	return strings.Contains(e.Summary, "O_o")
@@ -29,9 +32,10 @@ func syncCalendars() {
 	if err != nil {
 		log.Fatalf("Error reading config file: %v", err)
 	}
-	useReminders := config.General.DisableReminders
-	eventVisibility := config.General.EventVisibility
-	privateEventSummary := config.General.PrivateEventSummary
+	useReminders       := config.General.DisableReminders
+	eventVisibility    := config.General.EventVisibility
+	privateEventSummary:= config.General.PrivateEventSummary
+	travelCfg          := config.Travel     // <-- NEW
 
 	db, err := openDB(".gcalsync.db")
 	if err != nil {
@@ -53,7 +57,8 @@ func syncCalendars() {
 
 		for _, calendarID := range calendarIDs {
 			fmt.Printf("  ↪️ Syncing calendar: %s\n", calendarID)
-			syncCalendar(db, calendarService, calendarID, calendars, accountName, useReminders, eventVisibility, privateEventSummary)
+			syncCalendar(db, calendarService, calendarID, calendars, accountName,
+				useReminders, eventVisibility, privateEventSummary, travelCfg)
 		}
 		fmt.Println("✅ Calendar synchronization completed successfully!")
 	}
@@ -77,7 +82,8 @@ func getCalendarsFromDB(db *sql.DB) map[string][]string {
 
 func syncCalendar(db *sql.DB, calendarService *calendar.Service,
 	calendarID string, calendars map[string][]string, accountName string,
-	useReminders bool, eventVisibility string, privateEventSummary string) {
+	useReminders bool, eventVisibility string, privateEventSummary string,
+	travelCfg TravelConfig) {
 	config, err := readConfig(".gcalsync.toml")
 	if err != nil {
 		log.Fatalf("Error reading config file: %v", err)
@@ -132,11 +138,15 @@ func syncCalendar(db *sql.DB, calendarService *calendar.Service,
 			for otherAccountName, calendarIDs := range calendars {
 				for _, otherCalendarID := range calendarIDs {
 					if otherCalendarID != calendarID {
+						/* 1. -------- BLOCKER EVENT (existing logic, only SQL changed) ---------- */
 						var existingBlockerEventID string
 						var last_updated string
 						var originCalendarID string
 						var responseStatus string
-						err := db.QueryRow("SELECT event_id, last_updated, origin_calendar_id, response_status FROM blocker_events WHERE calendar_id = ? AND origin_event_id = ?", otherCalendarID, event.Id).Scan(&existingBlockerEventID, &last_updated, &originCalendarID, &responseStatus)
+						err := db.QueryRow(`SELECT event_id, last_updated, origin_calendar_id, response_status
+											 FROM blocker_events
+											 WHERE calendar_id = ? AND origin_event_id = ? AND event_type='blocker'`,
+											 otherCalendarID, event.Id).Scan(&existingBlockerEventID, &last_updated, &originCalendarID, &responseStatus)
 
 						// Get original event's response status for the calendar owner
 						originalResponseStatus := "accepted" // default
@@ -206,9 +216,11 @@ func syncCalendar(db *sql.DB, calendarService *calendar.Service,
 							fmt.Printf("      ➕ Blocker event created or updated: %s (Response: %s)\n", blockerEvent.Summary, originalResponseStatus)
 							fmt.Printf("      📅 Destination calendar: %s\n", otherCalendarID)
 							result, err := db.Exec(`INSERT OR REPLACE INTO blocker_events
-								(event_id, origin_calendar_id, calendar_id, account_name, origin_event_id, last_updated, response_status)
-								VALUES (?, ?, ?, ?, ?, ?, ?)`,
-								res.Id, calendarID, otherCalendarID, otherAccountName, event.Id, event.Updated, originalResponseStatus)
+								(event_id, origin_calendar_id, calendar_id, account_name,
+								 origin_event_id, last_updated, response_status, event_type)
+								VALUES (?, ?, ?, ?, ?, ?, ?, 'blocker')`,
+								res.Id, calendarID, otherCalendarID, otherAccountName,
+								event.Id, event.Updated, originalResponseStatus)
 							if err != nil {
 								log.Printf("Error inserting blocker event into database: %v\n", err)
 							} else {
@@ -219,6 +231,65 @@ func syncCalendar(db *sql.DB, calendarService *calendar.Service,
 
 						if err != nil {
 							log.Fatalf("Error creating blocker event: %v", err)
+						}
+						/* 2. -------- TRAVEL EVENTS (new) ---------- */
+						if travelCfg.Enable && event.Location != "" && event.Start != nil && event.End != nil {
+							createOrUpdateTravel := func(travelKind string, start, end time.Time, summary string) {
+								var existingID, lu, ocid, rs string
+								q := `SELECT event_id, last_updated, origin_calendar_id, response_status
+									  FROM blocker_events
+									  WHERE calendar_id = ? AND origin_event_id = ? AND event_type = ?`
+								_ = db.QueryRow(q, otherCalendarID, event.Id, travelKind).Scan(&existingID, &lu, &ocid, &rs)
+								if lu == event.Updated && ocid == calendarID && rs == originalResponseStatus {
+									return // up-to-date
+								}
+
+								tEvent := &calendar.Event{
+									Summary:     summary,
+									Description: event.Description,
+									Start: &calendar.EventDateTime{DateTime: start.Format(time.RFC3339)},
+									End:   &calendar.EventDateTime{DateTime: end.Format(time.RFC3339)},
+									Attendees: []*calendar.EventAttendee{
+										{Email: otherCalendarID, ResponseStatus: originalResponseStatus},
+									},
+									ExtendedProperties: &calendar.EventExtendedProperties{
+										Private: map[string]string{"gcalsync_travel": travelKind},
+									},
+								}
+								if !useReminders { tEvent.Reminders = nil }
+								vis := travelCfg.EventVisibility
+								if vis == "" { vis = eventVisibility }
+								if vis != "" { tEvent.Visibility = vis }
+
+								var resp *calendar.Event
+								if existingID != "" {
+									resp, err = otherCalendarService.Events.Update(otherCalendarID, existingID, tEvent).Do()
+								} else {
+									resp, err = otherCalendarService.Events.Insert(otherCalendarID, tEvent).Do()
+								}
+								if err != nil { log.Fatalf("Error creating travel event: %v", err) }
+
+								_, _ = db.Exec(`INSERT OR REPLACE INTO blocker_events
+								   (event_id, origin_calendar_id, calendar_id, account_name,
+									origin_event_id, last_updated, response_status, event_type)
+								   VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+								   resp.Id, calendarID, otherCalendarID, otherAccountName,
+								   event.Id, event.Updated, originalResponseStatus, travelKind)
+							}
+
+							// compute times
+							origStart, _ := time.Parse(time.RFC3339, event.Start.DateTime)
+							origEnd,   _ := time.Parse(time.RFC3339, event.End.DateTime)
+							beforeStart := origStart.Add(-time.Duration(travelCfg.MinutesBefore) * time.Minute)
+							beforeEnd   := origStart
+							afterStart  := origEnd
+							afterEnd    := origEnd.Add(time.Duration(travelCfg.MinutesAfter) * time.Minute)
+
+							beforeSummary := strings.ReplaceAll(travelCfg.BeforeSummaryTmpl, "{summary}", event.Summary)
+							afterSummary  := strings.ReplaceAll(travelCfg.AfterSummaryTmpl,  "{summary}", event.Summary)
+
+							createOrUpdateTravel("travel_before", beforeStart, beforeEnd, beforeSummary)
+							createOrUpdateTravel("travel_after",  afterStart,  afterEnd,  afterSummary)
 						}
 					}
 				}
@@ -237,7 +308,10 @@ func syncCalendar(db *sql.DB, calendarService *calendar.Service,
 			if otherCalendarID != calendarID {
 				client := getClient(ctx, oauthConfig, db, otherAccountName, config)
 				otherCalendarService, err := calendar.NewService(ctx, option.WithHTTPClient(client))
-				rows, err := db.Query("SELECT event_id, origin_event_id FROM blocker_events WHERE calendar_id = ? AND origin_calendar_id = ?", otherCalendarID, calendarID)
+				rows, err := db.Query(`SELECT event_id, origin_event_id, event_type
+				                       FROM blocker_events
+				                       WHERE calendar_id = ? AND origin_calendar_id = ?`,
+				                       otherCalendarID, calendarID)
 				if err != nil {
 					log.Fatalf("Error retrieving blocker events: %v", err)
 				}
