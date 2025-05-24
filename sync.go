@@ -320,7 +320,7 @@ func syncCalendar(db *sql.DB, calendarService *calendar.Service,
 					log.Fatalf("Error creating calendar client: %v", err)
 				}
 
-				rows, err := db.Query(`SELECT event_id, origin_event_id, event_type
+				rows, err := db.Query(`SELECT event_id, origin_event_id
 				                       FROM blocker_events
 				                       WHERE calendar_id = ? AND origin_calendar_id = ?`,
 					otherCalendarID, calendarID)
