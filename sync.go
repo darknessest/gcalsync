@@ -306,8 +306,8 @@ func syncCalendar(db *sql.DB, calendarService *calendar.Service,
 								        (event_id, origin_calendar_id, calendar_id, account_name,
 								         origin_event_id, last_updated, response_status, event_type)
 								        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-								        resp.Id, calendarID, otherCalendarID, otherAccountName,
-								        event.Id, event.Updated, originalResponseStatus, travelKind)
+									resp.Id, calendarID, otherCalendarID, otherAccountName,
+									event.Id, event.Updated, originalResponseStatus, travelKind)
 								if dbErr != nil {
 									log.Printf("Error inserting travel event into database: %v\n", dbErr)
 								} else {
