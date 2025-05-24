@@ -100,7 +100,10 @@ func dbInit() {
 		if err != nil {
 			log.Fatalf("Error updating db_version table: %v", err)
 		}
+	}
+}
 
+	if dbVersion == 4 {
 		/* ---- DB schema v5 : add event_type column & new PK ---- */
 		_, err = db.Exec(`CREATE TABLE blocker_events_new (
 			event_id TEXT,
@@ -133,4 +136,3 @@ func dbInit() {
 		_, err = db.Exec(`UPDATE db_version SET version = 5 WHERE name = 'gcalsync'`)
 		if err != nil { log.Fatalf("Error updating db_version to 5: %v", err) }
 	}
-}
