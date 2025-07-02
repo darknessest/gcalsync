@@ -56,8 +56,8 @@ func desyncCalendars() {
 
 		err = calendarService.Events.Delete(calendarID, eventID).Do()
 		if err != nil {
-			if googleErr, ok := err.(*googleapi.Error); ok && googleErr.Code == 404 {
-				fmt.Printf("  ⚠️ Blocker event not found in calendar: %s\n", eventID)
+			if googleErr, ok := err.(*googleapi.Error); ok && (googleErr.Code == 404 || googleErr.Code == 410) {
+				fmt.Printf("  ⚠️ Blocker event not found in calendar (or already deleted): %s\n", eventID)
 			} else {
 				log.Fatalf("❌ Error deleting blocker event: %v", err)
 			}
