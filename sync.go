@@ -27,6 +27,47 @@ func isBlockerEvent(e *calendar.Event) bool {
 	return strings.Contains(e.Summary, "O_o")
 }
 
+// findExistingCopiedEvent attempts to locate an existing gcalsync-managed event in the destination
+// calendar when we have no matching record in the local DB. It searches using the private extended
+// properties we set on every copied event. If found, its ID is returned, otherwise an empty string.
+func findExistingCopiedEvent(srv *calendar.Service, calendarID, originEventID, eventType string) (string, error) {
+	// Decide which extended property we should look for
+	var propFilter string
+	switch eventType {
+	case "blocker":
+		propFilter = "gcalsync_blocker=1"
+	default: // travel_before / travel_after
+		propFilter = fmt.Sprintf("gcalsync_travel=%s", eventType)
+	}
+
+	pageToken := ""
+	for {
+		call := srv.Events.List(calendarID).
+			PrivateExtendedProperty(propFilter).
+			PageToken(pageToken)
+		// Narrow down the result set a little – the API allows filtering by the origin ID we embed
+		// in every copied event. Older events may not have that yet, but that's fine.
+		call = call.Q(originEventID)
+
+		res, err := call.Do()
+		if err != nil {
+			return "", err
+		}
+		for _, ev := range res.Items {
+			if ev.ExtendedProperties != nil && ev.ExtendedProperties.Private != nil {
+				if ev.ExtendedProperties.Private["gcalsync_origin_event_id"] == originEventID {
+					return ev.Id, nil
+				}
+			}
+		}
+		pageToken = res.NextPageToken
+		if pageToken == "" {
+			break
+		}
+	}
+	return "", nil
+}
+
 func syncCalendars() {
 	config, err := readConfig(".gcalsync.toml")
 	if err != nil {
@@ -213,7 +254,8 @@ func syncCalendar(db *sql.DB, calendarService *calendar.Service,
 							},
 							ExtendedProperties: &calendar.EventExtendedProperties{
 								Private: map[string]string{
-									"gcalsync_blocker": "1",
+									"gcalsync_blocker":         "1",
+									"gcalsync_origin_event_id": event.Id,
 								},
 							},
 						}
@@ -223,6 +265,13 @@ func syncCalendar(db *sql.DB, calendarService *calendar.Service,
 
 						if eventVisibility != "" {
 							blockerEvent.Visibility = eventVisibility
+						}
+
+						// If the DB doesn't know about the copied event, try to locate it directly in the destination calendar
+						if existingBlockerEventID == "" {
+							if foundID, ferr := findExistingCopiedEvent(otherCalendarService, otherCalendarID, event.Id, "blocker"); ferr == nil {
+								existingBlockerEventID = foundID
+							}
 						}
 
 						var res *calendar.Event
@@ -275,7 +324,10 @@ func syncCalendar(db *sql.DB, calendarService *calendar.Service,
 										{Email: otherCalendarID, ResponseStatus: originalResponseStatus},
 									},
 									ExtendedProperties: &calendar.EventExtendedProperties{
-										Private: map[string]string{"gcalsync_travel": travelKind},
+										Private: map[string]string{
+											"gcalsync_travel":         travelKind,
+											"gcalsync_origin_event_id": event.Id,
+										},
 									},
 								}
 								if !useReminders {
@@ -287,6 +339,13 @@ func syncCalendar(db *sql.DB, calendarService *calendar.Service,
 								}
 								if vis != "" {
 									tEvent.Visibility = vis
+								}
+
+								// If DB lacks record, attempt to locate the travel event in destination calendar
+								if existingID == "" {
+									if foundID, ferr := findExistingCopiedEvent(otherCalendarService, otherCalendarID, event.Id, travelKind); ferr == nil {
+										existingID = foundID
+									}
 								}
 
 								var resp *calendar.Event
