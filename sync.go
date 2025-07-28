@@ -76,7 +76,7 @@ func syncCalendars() {
 	useReminders := config.General.DisableReminders
 	eventVisibility := config.General.EventVisibility
 	privateEventSummary := config.General.PrivateEventSummary
-	travelCfg := config.Travel // <-- NEW
+	travelCfg := config.Travel
 
 	syncDirection := strings.ToLower(config.Sync.Direction)
 	if syncDirection == "" {
