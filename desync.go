@@ -26,16 +26,18 @@ func desyncCalendars() {
 
 	fmt.Println("🚀 Starting calendar desynchronization...")
 
+	// First, get all events grouped by account name to avoid token refresh loops
 	rows, err := db.Query("SELECT event_id, calendar_id, account_name FROM blocker_events")
 	if err != nil {
 		log.Fatalf("❌ Error retrieving blocker events from database: %v", err)
 	}
 	defer rows.Close()
 
-	var eventIDCalendarIDPairs []struct {
+	// Group events by account name
+	eventsByAccount := make(map[string][]struct {
 		EventID    string
 		CalendarID string
-	}
+	})
 
 	for rows.Next() {
 		var eventID, calendarID, accountName string
@@ -43,37 +45,44 @@ func desyncCalendars() {
 			log.Fatalf("❌ Error scanning blocker event row: %v", err)
 		}
 
-		eventIDCalendarIDPairs = append(eventIDCalendarIDPairs, struct {
+		eventsByAccount[accountName] = append(eventsByAccount[accountName], struct {
 			EventID    string
 			CalendarID string
 		}{EventID: eventID, CalendarID: calendarID})
+	}
 
+	// Process events by account to reuse calendar services
+	for accountName, events := range eventsByAccount {
+		fmt.Printf("📅 Processing events for account: %s\n", accountName)
+
+		// Create calendar service once per account (like in sync.go)
 		client := getClient(ctx, oauthConfig, db, accountName, config)
 		calendarService, err := calendar.NewService(ctx, option.WithHTTPClient(client))
 		if err != nil {
 			log.Fatalf("❌ Error creating calendar client: %v", err)
 		}
 
-		err = calendarService.Events.Delete(calendarID, eventID).Do()
-		if err != nil {
-			if googleErr, ok := err.(*googleapi.Error); ok && (googleErr.Code == 404 || googleErr.Code == 410) {
-				fmt.Printf("  ⚠️ Blocker event not found in calendar (or already deleted): %s\n", eventID)
+		// Process all events for this account
+		for _, event := range events {
+			err = calendarService.Events.Delete(event.CalendarID, event.EventID).Do()
+			if err != nil {
+				if googleErr, ok := err.(*googleapi.Error); ok && (googleErr.Code == 404 || googleErr.Code == 410) {
+					fmt.Printf("  ⚠️ Blocker event not found in calendar (or already deleted): %s\n", event.EventID)
+				} else {
+					log.Fatalf("❌ Error deleting blocker event: %v", err)
+				}
 			} else {
-				log.Fatalf("❌ Error deleting blocker event: %v", err)
+				fmt.Printf("  ✅ Blocker event deleted: %s\n", event.EventID)
 			}
-		} else {
-			fmt.Printf("  ✅ Blocker event deleted: %s\n", eventID)
 		}
 	}
 
-	// Delete blocker events from the database after the iteration
-	for _, pair := range eventIDCalendarIDPairs {
-		_, err := db.Exec("DELETE FROM blocker_events WHERE event_id = ? AND calendar_id = ?", pair.EventID, pair.CalendarID)
-		if err != nil {
-			log.Fatalf("❌ Error deleting blocker event from database: %v", err)
-		} else {
-			fmt.Printf("  📥 Blocker event deleted from database: %s\n", pair.EventID)
-		}
+	// Delete all blocker events from the database
+	_, err = db.Exec("DELETE FROM blocker_events")
+	if err != nil {
+		log.Fatalf("❌ Error deleting blocker events from database: %v", err)
+	} else {
+		fmt.Printf("  📥 All blocker events deleted from database\n")
 	}
 
 	fmt.Println("Calendars desynced successfully")
