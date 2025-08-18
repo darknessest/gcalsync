@@ -5,6 +5,8 @@ block_event_visibility = "private"    # Keep O_o event public or private
 authorized_ports = [8080, 8081, 8082] # Ports to listen on for OAuth token callback (the same you configured your app with in Google console!)
 private_event_name = "O_o {name}"         # Template for private events
 disable_description_copy = true
+tentative_handling = "copy"            # copy | ignore | special
+tentative_event_name = "Maybe busy: {name}"
 
 [google]
 client_id = ""     # Get these from the Google Developer Console

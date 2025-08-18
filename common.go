@@ -33,6 +33,8 @@ type GeneralConfig struct {
 	Verbosity              int    `toml:"verbosity"`
 	PrivateEventName       string `toml:"private_event_name"`
 	DisableDescriptionCopy bool   `toml:"disable_description_copy"`
+	TentativeHandling      string `toml:"tentative_handling"`     // "copy" | "ignore" | "special"
+	TentativeEventName     string `toml:"tentative_event_name"`   // used when tentative_handling == "special"
 }
 
 // NEW sub-struct for travel-time feature
@@ -120,6 +122,14 @@ func readConfig(filename string) (*Config, error) {
 	// Travel visibility falls back to general visibility
 	if config.Travel.EventVisibility == "" {
 		config.Travel.EventVisibility = config.General.EventVisibility
+	}
+
+	// Tentative handling defaults
+	if config.General.TentativeHandling == "" {
+		config.General.TentativeHandling = "copy"
+	}
+	if config.General.TentativeEventName == "" {
+		config.General.TentativeEventName = "Maybe busy: {name}"
 	}
 
 	// Sensible defaults for SyncConfig

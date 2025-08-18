@@ -49,6 +49,8 @@ Say goodbye to calendar conflicts and hello to seamless synchronization. 🎉
     authorized_ports = [8080, 8081, 8082]  # Ports that can be used for OAuth callback
     private_event_name = "O_o {name}"      # Name template for private blocker events
     disable_description_copy = true        # Do not copy original event description into blockers
+    tentative_handling = "copy"            # copy | ignore | special
+    tentative_event_name = "Maybe busy: {name}"  # Used when tentative_handling = "special"
     
     [google]
     client_id = "your-client-id"           # Your OAuth2 client ID
@@ -130,6 +132,14 @@ verbosity = 1                         # How much chatter to spill out when runni
 authorized_ports = [3000, 3001, 3002] # Callback ports to listen to for OAuth token response
 private_event_name = "O_o {name}"
 disable_description_copy = true
+# Tentative handling policy:
+#   - copy: treat tentative like accepted (default)
+#   - ignore: do not create blockers/travel, delete existing ones
+#   - special: create blocker with a special name
+# Placeholders: {name} -> original event name
+# Examples:
+tentative_handling = "special"
+tentative_event_name = "Maybe busy: {name}"
 
 [travel]
 enable_travel_time = true
@@ -157,6 +167,8 @@ reconcile_remote = false
   - `verbosity`: How "chatty" you want the app to be 1..3 with 1 being mostly quiet and 3 giving you full details.
   - `private_event_name`: Name template used for blockers when `block_event_visibility` is `private`.
   - `disable_description_copy`: If `true`, blocker/travel events have empty description.
+  - `tentative_handling`: One of `copy`, `ignore`, or `special`. If `ignore`, tentative events will not create blockers (and any existing blockers/travel for them will be removed). If `special`, blockers will be created with `tentative_event_name`.
+  - `tentative_event_name`: Name template used when `tentative_handling = "special"`. Supports `{name}` placeholder.
 - `[travel]` section
   - `enable_travel_time`: Enable creation of travel events before/after origin events.
   - `minutes_before` / `minutes_after`: Duration for travel events.

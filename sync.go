@@ -196,8 +196,8 @@ func syncCalendar(db *sql.DB, services map[string]*calendar.Service,
 						var originCalendarID string
 						var responseStatus string
 						err := db.QueryRow(`SELECT event_id, last_updated, origin_calendar_id, response_status
-										 FROM blocker_events
-										 WHERE calendar_id = ? AND origin_event_id = ? AND event_type='blocker'`,
+									 FROM blocker_events
+									 WHERE calendar_id = ? AND origin_event_id = ? AND event_type='blocker'`,
 							otherCalendarID, event.Id).Scan(&existingBlockerEventID, &last_updated, &originCalendarID, &responseStatus)
 
 						// Get original event's response status for the calendar owner
@@ -209,6 +209,35 @@ func syncCalendar(db *sql.DB, services map[string]*calendar.Service,
 									break
 								}
 							}
+						}
+
+						// Apply tentative handling policy
+						th := strings.ToLower(cfg.General.TentativeHandling)
+						isTentative := strings.ToLower(originalResponseStatus) == "tentative"
+						if isTentative && th == "ignore" {
+							otherCalendarService := services[otherAccountName]
+							// Delete existing blocker if present
+							if existingBlockerEventID != "" {
+								_ = otherCalendarService.Events.Delete(otherCalendarID, existingBlockerEventID).Do()
+								_, _ = db.Exec(`DELETE FROM blocker_events WHERE calendar_id = ? AND origin_event_id = ? AND event_type = 'blocker'`, otherCalendarID, event.Id)
+							}
+							// Delete existing travel events if present
+							rows, qerr := db.Query(`SELECT event_id, event_type FROM blocker_events WHERE calendar_id = ? AND origin_event_id = ? AND event_type IN ('travel_before','travel_after')`, otherCalendarID, event.Id)
+							if qerr == nil {
+								for rows.Next() {
+									var tid, ttype string
+									_ = rows.Scan(&tid, &ttype)
+									if tid != "" {
+										_ = otherCalendarService.Events.Delete(otherCalendarID, tid).Do()
+									}
+								}
+								rows.Close()
+								_, _ = db.Exec(`DELETE FROM blocker_events WHERE calendar_id = ? AND origin_event_id = ? AND event_type IN ('travel_before','travel_after')`, otherCalendarID, event.Id)
+							}
+							// Skip creation for tentative when ignoring
+							continue
+						} else if isTentative && th == "special" {
+							blockerName = strings.ReplaceAll(cfg.General.TentativeEventName, "{name}", eventName)
 						}
 
 						// Only skip if event exists, is up to date, and response status hasn't changed
