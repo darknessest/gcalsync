@@ -19,7 +19,6 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/calendar/v3"
-	"google.golang.org/api/option"
 )
 
 type GoogleConfig struct {
@@ -93,6 +92,12 @@ func readConfig(filename string) (*Config, error) {
 	}
 
 	/* sensible defaults when fields not present */
+	if len(config.General.AuthorizedPorts) == 0 {
+		config.General.AuthorizedPorts = []int{8080, 8081, 8082}
+	}
+	if config.General.PrivateEventSummary == "" {
+		config.General.PrivateEventSummary = "O_o {summary}"
+	}
 	if config.Travel.MinutesBefore == 0 {
 		config.Travel.MinutesBefore = 30
 	}
@@ -315,36 +320,7 @@ func getClient(ctx context.Context, config *oauth2.Config, db *sql.DB, accountNa
 }
 
 // Check if the token has expired and refresh if necessary, return updated calendarService
-func tokenExpired(db *sql.DB, accountName string, calendarService *calendar.Service, ctx context.Context) *calendar.Service {
-	var tokenJSON []byte
-	err := db.QueryRow("SELECT token FROM tokens WHERE account_name = ?", accountName).Scan(&tokenJSON)
-	if err != nil {
-		log.Fatalf("Error retrieving token from database: %v", err)
-	}
-
-	var token oauth2.Token
-	err = json.Unmarshal(tokenJSON, &token)
-	if err != nil {
-		log.Fatalf("Error unmarshaling token: %v", err)
-	}
-
-	if token.Expiry.Before(time.Now()) {
-		fmt.Printf("  ❗️ Token expired for account %s. Refreshing token.\n", accountName)
-		newToken, err := oauthConfig.TokenSource(ctx, &token).Token()
-		if err != nil {
-			log.Fatalf("Error refreshing token: %v", err)
-		}
-		saveToken(db, accountName, newToken)
-
-		// Create new calendar service with updated token
-		calendarService, err = calendar.NewService(ctx, option.WithHTTPClient(oauthConfig.Client(ctx, newToken)))
-		if err != nil {
-			log.Fatalf("Unable to create new calendar service: %v", err)
-		}
-	}
-
-	return calendarService
-}
+// tokenExpired removed: token refresh is handled inside getClient and reused services.
 
 // Helper function to find an available port in a range
 func findAvailablePort(authorizedPorts []int) (net.Listener, error) {

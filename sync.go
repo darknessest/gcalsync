@@ -73,19 +73,6 @@ func syncCalendars() {
 	if err != nil {
 		log.Fatalf("Error reading config file: %v", err)
 	}
-	useReminders := config.General.DisableReminders
-	eventVisibility := config.General.EventVisibility
-	privateEventSummary := config.General.PrivateEventSummary
-	travelCfg := config.Travel
-
-	syncDirection := strings.ToLower(config.Sync.Direction)
-	if syncDirection == "" {
-		syncDirection = "future"
-	}
-	timeframeDays := config.Sync.TimeframeDays
-	if timeframeDays == 0 {
-		timeframeDays = 14
-	}
 
 	db, err := openDB(".gcalsync.db")
 	if err != nil {
@@ -96,20 +83,24 @@ func syncCalendars() {
 	calendars := getCalendarsFromDB(db)
 
 	ctx := context.Background()
-	fmt.Println("🚀 Starting calendar synchronization...")
-	for accountName, calendarIDs := range calendars {
-		fmt.Printf("📅 Syncing calendars for account: %s\n", accountName)
+
+	// Build one calendar service per account and reuse it
+	services := make(map[string]*calendar.Service)
+	for accountName := range calendars {
 		client := getClient(ctx, oauthConfig, db, accountName, config)
-		calendarService, err := calendar.NewService(ctx, option.WithHTTPClient(client))
+		srv, err := calendar.NewService(ctx, option.WithHTTPClient(client))
 		if err != nil {
 			log.Fatalf("Error creating calendar client: %v", err)
 		}
+		services[accountName] = srv
+	}
 
+	fmt.Println("🚀 Starting calendar synchronization...")
+	for accountName, calendarIDs := range calendars {
+		fmt.Printf("📅 Syncing calendars for account: %s\n", accountName)
 		for _, calendarID := range calendarIDs {
 			fmt.Printf("  ↪️ Syncing calendar: %s\n", calendarID)
-			syncCalendar(db, calendarService, calendarID, calendars, accountName,
-				useReminders, eventVisibility, privateEventSummary, travelCfg,
-				syncDirection, timeframeDays)
+			syncCalendar(db, services, calendarID, calendars, accountName, config)
 		}
 		fmt.Println("✅ Calendar synchronization completed successfully!")
 	}
@@ -131,24 +122,17 @@ func getCalendarsFromDB(db *sql.DB) map[string][]string {
 	return calendars
 }
 
-func syncCalendar(db *sql.DB, calendarService *calendar.Service,
+func syncCalendar(db *sql.DB, services map[string]*calendar.Service,
 	calendarID string, calendars map[string][]string, accountName string,
-	useReminders bool, eventVisibility, privateEventSummary string,
-	travelCfg TravelConfig, syncDirection string, timeframeDays int) {
-	config, err := readConfig(".gcalsync.toml")
-	if err != nil {
-		log.Fatalf("Error reading config file: %v", err)
-	}
-
-	ctx := context.Background()
-	calendarService = tokenExpired(db, accountName, calendarService, ctx)
+	cfg *Config) {
+	originService := services[accountName]
 	pageToken := ""
 
 	now := time.Now()
-	rng := time.Duration(timeframeDays) * 24 * time.Hour
+	rng := time.Duration(cfg.Sync.TimeframeDays) * 24 * time.Hour
 
 	var timeMin, timeMax string
-	switch strings.ToLower(syncDirection) {
+	switch strings.ToLower(cfg.Sync.Direction) {
 	case "past":
 		timeMin = now.Add(-rng).Format(time.RFC3339)
 		timeMax = now.Format(time.RFC3339)
@@ -164,7 +148,7 @@ func syncCalendar(db *sql.DB, calendarService *calendar.Service,
 
 	for {
 		fmt.Printf("    📥 Retrieving events for calendar: %s\n", calendarID)
-		events, err := calendarService.Events.List(calendarID).
+		events, err := originService.Events.List(calendarID).
 			PageToken(pageToken).
 			SingleEvents(true).
 			TimeMin(timeMin).
@@ -185,12 +169,12 @@ func syncCalendar(db *sql.DB, calendarService *calendar.Service,
 				continue
 			}
 			var blockerSummary string
-			if eventVisibility == "private" {
+			if cfg.General.EventVisibility == "private" {
 				// allow user template; {summary} will be replaced by original text
-				if privateEventSummary == "" {
+				if cfg.General.PrivateEventSummary == "" {
 					blockerSummary = fmt.Sprintf("O_o %s", event.Summary)
 				} else {
-					blockerSummary = strings.ReplaceAll(privateEventSummary, "{summary}", event.Summary)
+					blockerSummary = strings.ReplaceAll(cfg.General.PrivateEventSummary, "{summary}", event.Summary)
 				}
 			} else {
 				blockerSummary = fmt.Sprintf("O_o %s", event.Summary)
@@ -205,8 +189,8 @@ func syncCalendar(db *sql.DB, calendarService *calendar.Service,
 						var originCalendarID string
 						var responseStatus string
 						err := db.QueryRow(`SELECT event_id, last_updated, origin_calendar_id, response_status
-											 FROM blocker_events
-											 WHERE calendar_id = ? AND origin_event_id = ? AND event_type='blocker'`,
+										 FROM blocker_events
+										 WHERE calendar_id = ? AND origin_event_id = ? AND event_type='blocker'`,
 							otherCalendarID, event.Id).Scan(&existingBlockerEventID, &last_updated, &originCalendarID, &responseStatus)
 
 						// Get original event's response status for the calendar owner
@@ -226,13 +210,7 @@ func syncCalendar(db *sql.DB, calendarService *calendar.Service,
 							continue
 						}
 
-						client := getClient(ctx, oauthConfig, db, otherAccountName, config)
-						otherCalendarService, err := calendar.NewService(ctx, option.WithHTTPClient(client))
-						if err != nil {
-							log.Fatalf("Error creating calendar client: %v", err)
-						}
-
-						blockerDescription := event.Description
+						otherCalendarService := services[otherAccountName]
 
 						if event.End == nil {
 							startTime, _ := time.Parse(time.RFC3339, event.Start.DateTime)
@@ -243,7 +221,7 @@ func syncCalendar(db *sql.DB, calendarService *calendar.Service,
 
 						blockerEvent := &calendar.Event{
 							Summary:     blockerSummary,
-							Description: blockerDescription,
+							Description: event.Description,
 							Start:       event.Start,
 							End:         event.End,
 							Attendees: []*calendar.EventAttendee{
@@ -259,12 +237,12 @@ func syncCalendar(db *sql.DB, calendarService *calendar.Service,
 								},
 							},
 						}
-						if !useReminders {
+						if cfg.General.DisableReminders {
 							blockerEvent.Reminders = nil
 						}
 
-						if eventVisibility != "" {
-							blockerEvent.Visibility = eventVisibility
+						if cfg.General.EventVisibility != "" {
+							blockerEvent.Visibility = cfg.General.EventVisibility
 						}
 
 						// If the DB doesn't know about the copied event, try to locate it directly in the destination calendar
@@ -302,12 +280,12 @@ func syncCalendar(db *sql.DB, calendarService *calendar.Service,
 							log.Fatalf("Error creating blocker event: %v", err)
 						}
 						/* 2. -------- TRAVEL EVENTS (new) ---------- */
-						if travelCfg.Enable && event.Location != "" && event.Start != nil && event.End != nil {
+						if cfg.Travel.Enable && event.Location != "" && event.Start != nil && event.End != nil {
 							createOrUpdateTravel := func(travelKind string, start, end time.Time, summary string) {
 								var existingID, lu, ocid, rs string
 								q := `SELECT event_id, last_updated, origin_calendar_id, response_status
-									  FROM blocker_events
-									  WHERE calendar_id = ? AND origin_event_id = ? AND event_type = ?`
+								      FROM blocker_events
+								      WHERE calendar_id = ? AND origin_event_id = ? AND event_type = ?`
 								_ = db.QueryRow(q, otherCalendarID, event.Id, travelKind).Scan(&existingID, &lu, &ocid, &rs)
 								if lu == event.Updated && ocid == calendarID && rs == originalResponseStatus {
 									fmt.Printf("      ⚠️ Travel %s event already exists for origin event ID %s in calendar %s and up to date\n",
@@ -330,12 +308,12 @@ func syncCalendar(db *sql.DB, calendarService *calendar.Service,
 										},
 									},
 								}
-								if !useReminders {
+								if cfg.General.DisableReminders {
 									tEvent.Reminders = nil
 								}
-								vis := travelCfg.EventVisibility
+								vis := cfg.Travel.EventVisibility
 								if vis == "" {
-									vis = eventVisibility
+									vis = cfg.General.EventVisibility
 								}
 								if vis != "" {
 									tEvent.Visibility = vis
@@ -378,13 +356,13 @@ func syncCalendar(db *sql.DB, calendarService *calendar.Service,
 							// compute times
 							origStart, _ := time.Parse(time.RFC3339, event.Start.DateTime)
 							origEnd, _ := time.Parse(time.RFC3339, event.End.DateTime)
-							beforeStart := origStart.Add(-time.Duration(travelCfg.MinutesBefore) * time.Minute)
+							beforeStart := origStart.Add(-time.Duration(cfg.Travel.MinutesBefore) * time.Minute)
 							beforeEnd := origStart
 							afterStart := origEnd
-							afterEnd := origEnd.Add(time.Duration(travelCfg.MinutesAfter) * time.Minute)
+							afterEnd := origEnd.Add(time.Duration(cfg.Travel.MinutesAfter) * time.Minute)
 
-							beforeSummary := strings.ReplaceAll(travelCfg.BeforeSummaryTmpl, "{summary}", event.Summary)
-							afterSummary := strings.ReplaceAll(travelCfg.AfterSummaryTmpl, "{summary}", event.Summary)
+							beforeSummary := strings.ReplaceAll(cfg.Travel.BeforeSummaryTmpl, "{summary}", event.Summary)
+							afterSummary := strings.ReplaceAll(cfg.Travel.AfterSummaryTmpl, "{summary}", event.Summary)
 
 							createOrUpdateTravel("travel_before", beforeStart, beforeEnd, beforeSummary)
 							createOrUpdateTravel("travel_after", afterStart, afterEnd, afterSummary)
@@ -404,11 +382,7 @@ func syncCalendar(db *sql.DB, calendarService *calendar.Service,
 	for otherAccountName, calendarIDs := range calendars {
 		for _, otherCalendarID := range calendarIDs {
 			if otherCalendarID != calendarID {
-				client := getClient(ctx, oauthConfig, db, otherAccountName, config)
-				otherCalendarService, err := calendar.NewService(ctx, option.WithHTTPClient(client))
-				if err != nil {
-					log.Fatalf("Error creating calendar client: %v", err)
-				}
+				otherCalendarService := services[otherAccountName]
 
 				rows, err := db.Query(`SELECT event_id, origin_event_id
 				                       FROM blocker_events
@@ -429,7 +403,7 @@ func syncCalendar(db *sql.DB, calendarService *calendar.Service,
 
 					if val := allEventsId[originEventID]; !val {
 
-						res, err := calendarService.Events.Get(calendarID, originEventID).Do()
+						res, err := originService.Events.Get(calendarID, originEventID).Do()
 						if err != nil || res == nil || res.Status == "cancelled" {
 							fmt.Printf("    🚩 Event marked for deletion: %s\n", eventID)
 							eventsToDelete = append(eventsToDelete, eventID)
