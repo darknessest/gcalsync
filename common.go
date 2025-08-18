@@ -27,21 +27,25 @@ type GoogleConfig struct {
 }
 
 type GeneralConfig struct {
-	DisableReminders    bool   `toml:"disable_reminders"`
-	EventVisibility     string `toml:"block_event_visibility"`
-	AuthorizedPorts     []int  `toml:"authorized_ports"`
-	Verbosity           int    `toml:"verbosity"`
-	PrivateEventSummary string `toml:"private_event_summary"` // template for private events
+	DisableReminders     bool   `toml:"disable_reminders"`
+	EventVisibility      string `toml:"block_event_visibility"`
+	AuthorizedPorts      []int  `toml:"authorized_ports"`
+	Verbosity            int    `toml:"verbosity"`
+	PrivateEventSummary  string `toml:"private_event_summary"` // legacy: template for private events
+	PrivateEventName     string `toml:"private_event_name"`    // new: preferred template for private events
+	DisableDescriptionCopy bool `toml:"disable_description_copy"` // new: disable copying descriptions
 }
 
 // NEW sub-struct for travel-time feature
 type TravelConfig struct {
-	Enable            bool   `toml:"enable_travel_time"`          // turn feature on/off
-	MinutesBefore     int    `toml:"minutes_before"`              // default travel minutes before event
-	MinutesAfter      int    `toml:"minutes_after"`               // default travel minutes after  event
-	EventVisibility   string `toml:"travel_event_visibility"`     // “public” / “private” / “default”
-	BeforeSummaryTmpl string `toml:"travel_before_event_summary"` // e.g. "Travel to {summary}"
-	AfterSummaryTmpl  string `toml:"travel_after_event_summary"`  // e.g. "Travel from {summary}"
+	Enable             bool   `toml:"enable_travel_time"`           // turn feature on/off
+	MinutesBefore      int    `toml:"minutes_before"`               // default travel minutes before event
+	MinutesAfter       int    `toml:"minutes_after"`                // default travel minutes after  event
+	EventVisibility    string `toml:"travel_event_visibility"`      // “public” / “private” / “default”
+	BeforeSummaryTmpl  string `toml:"travel_before_event_summary"`  // legacy: e.g. "Travel to {summary}"
+	AfterSummaryTmpl   string `toml:"travel_after_event_summary"`   // legacy: e.g. "Travel from {summary}"
+	BeforeNameTmpl     string `toml:"travel_before_event_name"`     // new: e.g. "Travel to {name}"
+	AfterNameTmpl      string `toml:"travel_after_event_name"`      // new: e.g. "Travel from {name}"
 }
 
 // NEW sub-struct for sync window feature
@@ -95,8 +99,9 @@ func readConfig(filename string) (*Config, error) {
 	if len(config.General.AuthorizedPorts) == 0 {
 		config.General.AuthorizedPorts = []int{8080, 8081, 8082}
 	}
-	if config.General.PrivateEventSummary == "" {
-		config.General.PrivateEventSummary = "O_o {summary}"
+	// Prefer new name-based template; fall back to legacy summary-based template
+	if config.General.PrivateEventName == "" && config.General.PrivateEventSummary == "" {
+		config.General.PrivateEventName = "O_o {name}"
 	}
 	if config.Travel.MinutesBefore == 0 {
 		config.Travel.MinutesBefore = 30
@@ -104,11 +109,12 @@ func readConfig(filename string) (*Config, error) {
 	if config.Travel.MinutesAfter == 0 {
 		config.Travel.MinutesAfter = 30
 	}
-	if config.Travel.BeforeSummaryTmpl == "" {
-		config.Travel.BeforeSummaryTmpl = "Travel to {summary}"
+	// Prefer new name-based templates; fall back to legacy summary-based templates
+	if config.Travel.BeforeNameTmpl == "" && config.Travel.BeforeSummaryTmpl == "" {
+		config.Travel.BeforeNameTmpl = "Travel to {name}"
 	}
-	if config.Travel.AfterSummaryTmpl == "" {
-		config.Travel.AfterSummaryTmpl = "Travel from {summary}"
+	if config.Travel.AfterNameTmpl == "" && config.Travel.AfterSummaryTmpl == "" {
+		config.Travel.AfterNameTmpl = "Travel from {name}"
 	}
 
 	// Sensible defaults for SyncConfig
@@ -149,11 +155,11 @@ func upadteConfigFormatIfNeeded(data []byte, configDir, filename string) error {
 	// Convert old config to new format
 	newConfig := Config{
 		General: GeneralConfig{
-			DisableReminders:    old.DisableReminders,
-			EventVisibility:     old.EventVisibility,
-			AuthorizedPorts:     old.AuthorizedPorts,
-			Verbosity:           old.Verbosity,
-			PrivateEventSummary: old.PrivateEventSummary,
+			DisableReminders:     old.DisableReminders,
+			EventVisibility:      old.EventVisibility,
+			AuthorizedPorts:      old.AuthorizedPorts,
+			Verbosity:            old.Verbosity,
+			PrivateEventSummary:  old.PrivateEventSummary,
 		},
 		Google: GoogleConfig{
 			ClientID:     old.ClientID,

@@ -168,16 +168,27 @@ func syncCalendar(db *sql.DB, services map[string]*calendar.Service,
 			if isBlockerEvent(event) { // skip our own blocker events
 				continue
 			}
-			var blockerSummary string
+			// Compute blocker event name (formerly called "summary")
+			eventName := event.Summary
+			var blockerName string
 			if cfg.General.EventVisibility == "private" {
-				// allow user template; {summary} will be replaced by original text
-				if cfg.General.PrivateEventSummary == "" {
-					blockerSummary = fmt.Sprintf("O_o %s", event.Summary)
-				} else {
-					blockerSummary = strings.ReplaceAll(cfg.General.PrivateEventSummary, "{summary}", event.Summary)
+				// prefer name-based template; fallback to legacy summary-based
+				tmpl := cfg.General.PrivateEventName
+				if tmpl == "" {
+					tmpl = cfg.General.PrivateEventSummary
 				}
+				if tmpl == "" {
+					tmpl = "O_o {name}"
+				}
+				blockerName = strings.ReplaceAll(tmpl, "{name}", eventName)
+				blockerName = strings.ReplaceAll(blockerName, "{summary}", eventName)
 			} else {
-				blockerSummary = fmt.Sprintf("O_o %s", event.Summary)
+				blockerName = fmt.Sprintf("O_o %s", eventName)
+			}
+			// Determine description based on config
+			description := event.Description
+			if cfg.General.DisableDescriptionCopy {
+				description = ""
 			}
 			fmt.Printf("    ✨ Syncing event: %s\n", event.Summary)
 			for otherAccountName, calendarIDs := range calendars {
@@ -220,8 +231,8 @@ func syncCalendar(db *sql.DB, services map[string]*calendar.Service,
 						}
 
 						blockerEvent := &calendar.Event{
-							Summary:     blockerSummary,
-							Description: event.Description,
+							Summary:     blockerName,
+							Description: description,
 							Start:       event.Start,
 							End:         event.End,
 							Attendees: []*calendar.EventAttendee{
@@ -281,7 +292,7 @@ func syncCalendar(db *sql.DB, services map[string]*calendar.Service,
 						}
 						/* 2. -------- TRAVEL EVENTS (new) ---------- */
 						if cfg.Travel.Enable && event.Location != "" && event.Start != nil && event.End != nil {
-							createOrUpdateTravel := func(travelKind string, start, end time.Time, summary string) {
+							createOrUpdateTravel := func(travelKind string, start, end time.Time, name string) {
 								var existingID, lu, ocid, rs string
 								q := `SELECT event_id, last_updated, origin_calendar_id, response_status
 								      FROM blocker_events
@@ -294,8 +305,8 @@ func syncCalendar(db *sql.DB, services map[string]*calendar.Service,
 								}
 
 								tEvent := &calendar.Event{
-									Summary:     summary,
-									Description: event.Description,
+									Summary:     name,
+									Description: description,
 									Start:       &calendar.EventDateTime{DateTime: start.Format(time.RFC3339)},
 									End:         &calendar.EventDateTime{DateTime: end.Format(time.RFC3339)},
 									Attendees: []*calendar.EventAttendee{
@@ -361,11 +372,29 @@ func syncCalendar(db *sql.DB, services map[string]*calendar.Service,
 							afterStart := origEnd
 							afterEnd := origEnd.Add(time.Duration(cfg.Travel.MinutesAfter) * time.Minute)
 
-							beforeSummary := strings.ReplaceAll(cfg.Travel.BeforeSummaryTmpl, "{summary}", event.Summary)
-							afterSummary := strings.ReplaceAll(cfg.Travel.AfterSummaryTmpl, "{summary}", event.Summary)
+							// Build travel event names using new name-based templates if present; fallback to legacy summary-based
+							beforeTmpl := cfg.Travel.BeforeNameTmpl
+							if beforeTmpl == "" {
+								beforeTmpl = cfg.Travel.BeforeSummaryTmpl
+							}
+							if beforeTmpl == "" {
+								beforeTmpl = "Travel to {name}"
+							}
+							afterTmpl := cfg.Travel.AfterNameTmpl
+							if afterTmpl == "" {
+								afterTmpl = cfg.Travel.AfterSummaryTmpl
+							}
+							if afterTmpl == "" {
+								afterTmpl = "Travel from {name}"
+							}
 
-							createOrUpdateTravel("travel_before", beforeStart, beforeEnd, beforeSummary)
-							createOrUpdateTravel("travel_after", afterStart, afterEnd, afterSummary)
+							beforeName := strings.ReplaceAll(beforeTmpl, "{name}", eventName)
+							beforeName = strings.ReplaceAll(beforeName, "{summary}", eventName)
+							afterName := strings.ReplaceAll(afterTmpl, "{name}", eventName)
+							afterName = strings.ReplaceAll(afterName, "{summary}", eventName)
+
+							createOrUpdateTravel("travel_before", beforeStart, beforeEnd, beforeName)
+							createOrUpdateTravel("travel_after", afterStart, afterEnd, afterName)
 						}
 					}
 				}
