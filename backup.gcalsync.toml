@@ -1,9 +1,10 @@
 [general]
-disable_reminders = false             # Set reminders on O_o events or not
+disable_reminders = true             # Set reminders on O_o events or not
 verbosity_level = 1                   # How much chatter to spill out when running sync 1 = errors only, 2 = info, 3 = debug
 block_event_visibility = "private"    # Keep O_o event public or private
 authorized_ports = [8080, 8081, 8082] # Ports to listen on for OAuth token callback (the same you configured your app with in Google console!)
-private_event_summary = "O_o {summary}"         # Template for private events
+private_event_name = "O_o {name}"         # Template for private events
+disable_description_copy = true
 
 [google]
 client_id = ""     # Get these from the Google Developer Console
@@ -14,9 +15,10 @@ enable_travel_time = true
 minutes_before = 15
 minutes_after = 15
 travel_event_visibility = "private"
-travel_before_event_summary = "🏃‍➡️ Travel"
-travel_after_event_summary = "🏃‍ Travel"
+travel_before_event_name = "🏃‍➡️ Travel"
+travel_after_event_name = "🏃‍ Travel"
 
 [sync]
 direction = "future"
 timeframe_days = 21
+reconcile_remote = false

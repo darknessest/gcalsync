@@ -47,6 +47,8 @@ Say goodbye to calendar conflicts and hello to seamless synchronization. 🎉
     disable_reminders = false              # Disable reminders for blocker events
     block_event_visibility = "private"     # Visibility of blocker events (private, public, or default)
     authorized_ports = [8080, 8081, 8082]  # Ports that can be used for OAuth callback
+    private_event_name = "O_o {name}"      # Name template for private blocker events
+    disable_description_copy = true        # Do not copy original event description into blockers
     
     [google]
     client_id = "your-client-id"           # Your OAuth2 client ID
@@ -124,20 +126,46 @@ Additional sections and fields can be added to configure the program behavior:
 [general]
 block_event_visibility = "private"    # Keep O_o event public or private
 disable_reminders = true              # Set reminders on O_o events or not
-verbosity_level = 1                   # How much chatter to spill out when running sync
-authorized_ports = [3000, 3001, 3002] # Casllback ports to listen to for OAuth token response
+verbosity = 1                         # How much chatter to spill out when running sync
+authorized_ports = [3000, 3001, 3002] # Callback ports to listen to for OAuth token response
+private_event_name = "O_o {name}"
+disable_description_copy = true
+
+[travel]
+enable_travel_time = true
+minutes_before = 15
+minutes_after = 15
+travel_event_visibility = "private"
+travel_before_event_name = "Travel to {name}"
+travel_after_event_name = "Travel from {name}"
+
+[sync]
+direction = "future"                  # future | past | all
+timeframe_days = 14
+reconcile_remote = false
 ```
 
 #### 🔌 Configuration Parameters
 
 - `[google]` section
   - `client_id`: Your Google app client ID
-  -  `client_secret` Your Google app configuration secret
+  - `client_secret`: Your Google app configuration secret
 - `[general]` section
   - `authorized_ports`: The application needs to start a temporary local server to receive the OAuth callback from Google. By default, it will try ports 8080, 8081, and 8082. You can customize these ports by setting the `authorized_ports` array in your configuration file. The application will try each port in order until it finds an available one. Make sure these ports are allowed by your firewall and not in use by other applications.
-  - `block_event_visibility`: Defines whether you want to keep blocker events ("O_o") publicly visible or not. Posible values are `private` or `public`. If ommitted -- `public` is used.
-  - `disable_reminders`: Whether your blocker events should stay quite and **not** alert you. Possible values are `true` or `false`. default is `false`.
-  - `verbosity_level`: How "chatty" you want the app to be 1..3 with 1 being mostly quite and 3 giving you full details of what it is doing.
+  - `block_event_visibility`: Defines whether you want to keep blocker events ("O_o") publicly visible or not. Possible values: `private`, `public`, or `default`.
+  - `disable_reminders`: Whether your blocker events should stay quiet and not alert you. Possible values: `true` or `false`. Default is `false`.
+  - `verbosity`: How "chatty" you want the app to be 1..3 with 1 being mostly quiet and 3 giving you full details.
+  - `private_event_name`: Name template used for blockers when `block_event_visibility` is `private`.
+  - `disable_description_copy`: If `true`, blocker/travel events have empty description.
+- `[travel]` section
+  - `enable_travel_time`: Enable creation of travel events before/after origin events.
+  - `minutes_before` / `minutes_after`: Duration for travel events.
+  - `travel_event_visibility`: Visibility for travel events; falls back to `[general].block_event_visibility` if empty.
+  - `travel_before_event_name` / `travel_after_event_name`: Name templates for travel events.
+- `[sync]` section
+  - `direction`: One of `future`, `past`, `all`.
+  - `timeframe_days`: Window length used with `direction`.
+  - `reconcile_remote`: If `true`, pre-sync reconciliation populates DB from existing remote events.
 
 ## 🤝 Contributing
 

@@ -23,8 +23,7 @@ func isBlockerEvent(e *calendar.Event) bool {
 			return true
 		}
 	}
-	// fallback for events created by older versions
-	return strings.Contains(e.Summary, "O_o")
+	return false
 }
 
 // findExistingCopiedEvent attempts to locate an existing gcalsync-managed event in the destination
@@ -178,16 +177,7 @@ func syncCalendar(db *sql.DB, services map[string]*calendar.Service,
 			eventName := event.Summary
 			var blockerName string
 			if cfg.General.EventVisibility == "private" {
-				// prefer name-based template; fallback to legacy summary-based
-				tmpl := cfg.General.PrivateEventName
-				if tmpl == "" {
-					tmpl = cfg.General.PrivateEventSummary
-				}
-				if tmpl == "" {
-					tmpl = "O_o {name}"
-				}
-				blockerName = strings.ReplaceAll(tmpl, "{name}", eventName)
-				blockerName = strings.ReplaceAll(blockerName, "{summary}", eventName)
+				blockerName = strings.ReplaceAll(cfg.General.PrivateEventName, "{name}", eventName)
 			} else {
 				blockerName = fmt.Sprintf("O_o %s", eventName)
 			}
@@ -328,13 +318,7 @@ func syncCalendar(db *sql.DB, services map[string]*calendar.Service,
 								if cfg.General.DisableReminders {
 									tEvent.Reminders = nil
 								}
-								vis := cfg.Travel.EventVisibility
-								if vis == "" {
-									vis = cfg.General.EventVisibility
-								}
-								if vis != "" {
-									tEvent.Visibility = vis
-								}
+								tEvent.Visibility = cfg.Travel.EventVisibility
 
 								// If DB lacks record, attempt to locate the travel event in destination calendar
 								if existingID == "" {
@@ -378,26 +362,12 @@ func syncCalendar(db *sql.DB, services map[string]*calendar.Service,
 							afterStart := origEnd
 							afterEnd := origEnd.Add(time.Duration(cfg.Travel.MinutesAfter) * time.Minute)
 
-							// Build travel event names using new name-based templates if present; fallback to legacy summary-based
+							// Build travel event names using name-based templates only
 							beforeTmpl := cfg.Travel.BeforeNameTmpl
-							if beforeTmpl == "" {
-								beforeTmpl = cfg.Travel.BeforeSummaryTmpl
-							}
-							if beforeTmpl == "" {
-								beforeTmpl = "Travel to {name}"
-							}
 							afterTmpl := cfg.Travel.AfterNameTmpl
-							if afterTmpl == "" {
-								afterTmpl = cfg.Travel.AfterSummaryTmpl
-							}
-							if afterTmpl == "" {
-								afterTmpl = "Travel from {name}"
-							}
 
 							beforeName := strings.ReplaceAll(beforeTmpl, "{name}", eventName)
-							beforeName = strings.ReplaceAll(beforeName, "{summary}", eventName)
 							afterName := strings.ReplaceAll(afterTmpl, "{name}", eventName)
-							afterName = strings.ReplaceAll(afterName, "{summary}", eventName)
 
 							createOrUpdateTravel("travel_before", beforeStart, beforeEnd, beforeName)
 							createOrUpdateTravel("travel_after", afterStart, afterEnd, afterName)
