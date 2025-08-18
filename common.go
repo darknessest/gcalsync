@@ -27,31 +27,32 @@ type GoogleConfig struct {
 }
 
 type GeneralConfig struct {
-	DisableReminders     bool   `toml:"disable_reminders"`
-	EventVisibility      string `toml:"block_event_visibility"`
-	AuthorizedPorts      []int  `toml:"authorized_ports"`
-	Verbosity            int    `toml:"verbosity"`
-	PrivateEventSummary  string `toml:"private_event_summary"` // legacy: template for private events
-	PrivateEventName     string `toml:"private_event_name"`    // new: preferred template for private events
-	DisableDescriptionCopy bool `toml:"disable_description_copy"` // new: disable copying descriptions
+	DisableReminders       bool   `toml:"disable_reminders"`
+	EventVisibility        string `toml:"block_event_visibility"`
+	AuthorizedPorts        []int  `toml:"authorized_ports"`
+	Verbosity              int    `toml:"verbosity"`
+	PrivateEventSummary    string `toml:"private_event_summary"`    // legacy: template for private events
+	PrivateEventName       string `toml:"private_event_name"`       // new: preferred template for private events
+	DisableDescriptionCopy bool   `toml:"disable_description_copy"` // new: disable copying descriptions
 }
 
 // NEW sub-struct for travel-time feature
 type TravelConfig struct {
-	Enable             bool   `toml:"enable_travel_time"`           // turn feature on/off
-	MinutesBefore      int    `toml:"minutes_before"`               // default travel minutes before event
-	MinutesAfter       int    `toml:"minutes_after"`                // default travel minutes after  event
-	EventVisibility    string `toml:"travel_event_visibility"`      // “public” / “private” / “default”
-	BeforeSummaryTmpl  string `toml:"travel_before_event_summary"`  // legacy: e.g. "Travel to {summary}"
-	AfterSummaryTmpl   string `toml:"travel_after_event_summary"`   // legacy: e.g. "Travel from {summary}"
-	BeforeNameTmpl     string `toml:"travel_before_event_name"`     // new: e.g. "Travel to {name}"
-	AfterNameTmpl      string `toml:"travel_after_event_name"`      // new: e.g. "Travel from {name}"
+	Enable            bool   `toml:"enable_travel_time"`          // turn feature on/off
+	MinutesBefore     int    `toml:"minutes_before"`              // default travel minutes before event
+	MinutesAfter      int    `toml:"minutes_after"`               // default travel minutes after  event
+	EventVisibility   string `toml:"travel_event_visibility"`     // “public” / “private” / “default”
+	BeforeSummaryTmpl string `toml:"travel_before_event_summary"` // legacy: e.g. "Travel to {summary}"
+	AfterSummaryTmpl  string `toml:"travel_after_event_summary"`  // legacy: e.g. "Travel from {summary}"
+	BeforeNameTmpl    string `toml:"travel_before_event_name"`    // new: e.g. "Travel to {name}"
+	AfterNameTmpl     string `toml:"travel_after_event_name"`     // new: e.g. "Travel from {name}"
 }
 
 // NEW sub-struct for sync window feature
 type SyncConfig struct {
-	Direction     string `toml:"direction"`      // "future" | "past" | "all"
-	TimeframeDays int    `toml:"timeframe_days"` // #days to look ahead / behind
+	Direction       string `toml:"direction"`        // "future" | "past" | "all"
+	TimeframeDays   int    `toml:"timeframe_days"`   // #days to look ahead / behind
+	ReconcileRemote bool   `toml:"reconcile_remote"` // optional pre-sync reconciliation with remote
 }
 
 type Config struct {
@@ -155,11 +156,11 @@ func upadteConfigFormatIfNeeded(data []byte, configDir, filename string) error {
 	// Convert old config to new format
 	newConfig := Config{
 		General: GeneralConfig{
-			DisableReminders:     old.DisableReminders,
-			EventVisibility:      old.EventVisibility,
-			AuthorizedPorts:      old.AuthorizedPorts,
-			Verbosity:            old.Verbosity,
-			PrivateEventSummary:  old.PrivateEventSummary,
+			DisableReminders:    old.DisableReminders,
+			EventVisibility:     old.EventVisibility,
+			AuthorizedPorts:     old.AuthorizedPorts,
+			Verbosity:           old.Verbosity,
+			PrivateEventSummary: old.PrivateEventSummary,
 		},
 		Google: GoogleConfig{
 			ClientID:     old.ClientID,

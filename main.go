@@ -8,7 +8,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("Usage: gcalsync (add|sync|desync|list)")
+		fmt.Println("Usage: gcalsync (add|sync|desync|cleanup|list|reconcile)")
 		os.Exit(1)
 	}
 	config, err := readConfig(".gcalsync.toml")
@@ -29,6 +29,8 @@ func main() {
 		cleanupCalendars()
 	case "list":
 		listCalendars()
+	case "reconcile":
+		reconcileCalendars()
 	default:
 		fmt.Printf("Unknown command: %s\n", command)
 		os.Exit(1)

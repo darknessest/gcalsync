@@ -95,6 +95,12 @@ func syncCalendars() {
 		services[accountName] = srv
 	}
 
+	// Optional pre-sync reconciliation with remote calendars
+	if config.Sync.ReconcileRemote {
+		fmt.Println("🔍 Pre-sync reconciliation enabled. Backfilling local DB from remote…")
+		reconcileExistingRemoteEvents(db, services, calendars, config)
+	}
+
 	fmt.Println("🚀 Starting calendar synchronization...")
 	for accountName, calendarIDs := range calendars {
 		fmt.Printf("📅 Syncing calendars for account: %s\n", accountName)
@@ -314,7 +320,7 @@ func syncCalendar(db *sql.DB, services map[string]*calendar.Service,
 									},
 									ExtendedProperties: &calendar.EventExtendedProperties{
 										Private: map[string]string{
-											"gcalsync_travel":         travelKind,
+											"gcalsync_travel":          travelKind,
 											"gcalsync_origin_event_id": event.Id,
 										},
 									},
