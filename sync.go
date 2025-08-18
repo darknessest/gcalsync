@@ -248,9 +248,7 @@ func syncCalendar(db *sql.DB, services map[string]*calendar.Service,
 							blockerEvent.Reminders = nil
 						}
 
-						if cfg.General.EventVisibility != "" {
-							blockerEvent.Visibility = cfg.General.EventVisibility
-						}
+						blockerEvent.Visibility = cfg.General.EventVisibility
 
 						// If the DB doesn't know about the copied event, try to locate it directly in the destination calendar
 						if existingBlockerEventID == "" {

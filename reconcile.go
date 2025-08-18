@@ -100,6 +100,7 @@ func reconcileExistingRemoteEvents(db *sql.DB, services map[string]*calendar.Ser
 
 						originCalendarID := ""
 						originOwnerStatus := "accepted"
+						foundOrigin := false
 						for originAccountName, originCalendarIDs := range calendars {
 							srv := services[originAccountName]
 							for _, ocid := range originCalendarIDs {
@@ -117,27 +118,32 @@ func reconcileExistingRemoteEvents(db *sql.DB, services map[string]*calendar.Ser
 											}
 										}
 									}
+									foundOrigin = true
 									break
 								}
 							}
-
-							accountName := getAccountNameByCalendarID(db, destCalendarID)
-							_, dbErr := db.Exec(`INSERT OR REPLACE INTO blocker_events
-							(event_id, origin_calendar_id, calendar_id, account_name,
-							 origin_event_id, last_updated, response_status, event_type)
-							VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-								ev.Id, originCalendarID, destCalendarID, accountName,
-								originEventID, ev.Updated, originOwnerStatus, f.EventType)
-							if dbErr != nil {
-								log.Printf("    ⚠️ Failed to upsert reconciled event %s: %v\n", ev.Id, dbErr)
-							} else {
-								fmt.Printf("    🔗 Reconciled %s for origin %s into DB (dest %s)\n", f.EventType, originEventID, destCalendarID)
+							if foundOrigin {
+								break
 							}
 						}
-						pageToken = res.NextPageToken
-						if pageToken == "" {
-							break
+
+						accountName := getAccountNameByCalendarID(db, destCalendarID)
+						_, dbErr := db.Exec(`INSERT OR REPLACE INTO blocker_events
+						(event_id, origin_calendar_id, calendar_id, account_name,
+						 origin_event_id, last_updated, response_status, event_type)
+						VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+							ev.Id, originCalendarID, destCalendarID, accountName,
+							originEventID, ev.Updated, originOwnerStatus, f.EventType)
+						if dbErr != nil {
+							log.Printf("    ⚠️ Failed to upsert reconciled event %s: %v\n", ev.Id, dbErr)
+						} else {
+							fmt.Printf("    🔗 Reconciled %s for origin %s into DB (dest %s)\n", f.EventType, originEventID, destCalendarID)
 						}
+					}
+					// Handle pagination after processing all items on the page
+					pageToken = res.NextPageToken
+					if pageToken == "" {
+						break
 					}
 				}
 			}

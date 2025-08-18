@@ -96,6 +96,10 @@ func readConfig(filename string) (*Config, error) {
 	if config.General.EventVisibility == "" {
 		config.General.EventVisibility = "private"
 	}
+	// Default verbosity level
+	if config.General.Verbosity == 0 {
+		config.General.Verbosity = 1
+	}
 	// Default blocker name template
 	if config.General.PrivateEventName == "" {
 		config.General.PrivateEventName = "O_o {name}"
